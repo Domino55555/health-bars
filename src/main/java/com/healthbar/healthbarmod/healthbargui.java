@@ -2,6 +2,7 @@ package com.healthbar.healthbarmod;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.phys.EntityHitResult;
@@ -13,21 +14,17 @@ import net.neoforged.neoforge.client.event.RenderGuiEvent;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 
 @EventBusSubscriber(modid = healthbar.MODID, value = Dist.CLIENT)
 public class healthbargui {
 
     private static final Map<Integer, Float> displayedHealth = new HashMap<>();
-
     private static LivingEntity cachedTarget = null;
-    private static UUID lastTargetId = null;
     private static long lastSeenTime = 0L;
-    private static final long BUFFER_MS = 500; // 500 ms
+    private static final long BUFFER_MS = 500;
 
     @SubscribeEvent
     public static void onRenderGui(RenderGuiEvent.Post event) {
-
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null) return;
 
@@ -37,10 +34,8 @@ public class healthbargui {
         if (hit instanceof EntityHitResult ehr &&
                 ehr.getEntity() instanceof LivingEntity living &&
                 !(living instanceof ArmorStand)) {
-
             target = living;
             cachedTarget = living;
-            lastTargetId = living.getUUID();
             lastSeenTime = System.currentTimeMillis();
         }
 
@@ -48,7 +43,6 @@ public class healthbargui {
             if (cachedTarget == null) return;
             if (System.currentTimeMillis() - lastSeenTime > BUFFER_MS) {
                 cachedTarget = null;
-                lastTargetId = null;
                 return;
             }
             target = cachedTarget;
@@ -57,11 +51,9 @@ public class healthbargui {
         if (!target.isAlive()) return;
 
         GuiGraphics gui = event.getGuiGraphics();
-
         float current = target.getHealth();
         float max = target.getMaxHealth();
         if (max <= 0) return;
-
         float percent = current / max;
 
         int width = 180;
@@ -74,7 +66,6 @@ public class healthbargui {
         float smooth = lerp(last, current, 0.12f);
         if (Math.abs(smooth - current) < 0.01f) smooth = current;
         displayedHealth.put(id, smooth);
-
         float smoothPercent = smooth / max;
 
         int barX = x + 10;
@@ -103,10 +94,31 @@ public class healthbargui {
             gui.fill(barX, barY, barX + filled, barY + barHeight, (alpha << 24) | 0x00FF0000);
         }
 
-        String name = target.getName().getString();
-        int nameW = mc.font.width(name);
-        gui.drawString(mc.font, name, x + width / 2 - nameW / 2 + 1, y + 5, 0x55000000, false);
-        gui.drawString(mc.font, name, x + width / 2 - nameW / 2, y + 4, 0xFFFFFF, false);
+        // === FIXED ENTITY NAME DISPLAY ===
+        String entityName;
+
+        // Try multiple methods to get the name
+        if (target.hasCustomName()) {
+            entityName = target.getCustomName().getString();
+        } else {
+            entityName = target.getDisplayName().getString();
+        }
+
+        // Fallback if still empty/null
+        if (entityName == null || entityName.isEmpty()) {
+            entityName = target.getName().getString();
+        }
+
+        // Debug: print to console
+        System.out.println("Entity name: '" + entityName + "'");
+
+        int nameW = mc.font.width(entityName);
+        int nameX = x + width / 2 - nameW / 2;
+
+        // Draw shadow first (darker, offset)
+        gui.drawString(mc.font, entityName, nameX + 1, y + 5, 0xFF000000, false);
+        // Draw main text
+        gui.drawString(mc.font, entityName, nameX, y + 4, 0xFFFFFFFF, false);
 
         String hp = String.format("%.0f / %.0f", current, max);
         String pct = String.format("%.0f%%", percent * 100f);

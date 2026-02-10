@@ -5,8 +5,13 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -14,6 +19,7 @@ import net.neoforged.neoforge.client.event.RenderGuiEvent;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @EventBusSubscriber(modid = healthbar.MODID, value = Dist.CLIENT)
 public class healthbargui {
@@ -37,6 +43,30 @@ public class healthbargui {
             target = living;
             cachedTarget = living;
             lastSeenTime = System.currentTimeMillis();
+        } else if (hit instanceof BlockHitResult bhr) {
+            // Check if we hit a transparent block we should ignore
+            BlockState state = mc.level.getBlockState(bhr.getBlockPos());
+            if (isTransparentBlock(state)) {
+                // Do entity check through this transparent block
+                Vec3 eyePos = mc.player.getEyePosition(1.0F);
+                Vec3 lookVec = mc.player.getViewVector(1.0F);
+                Vec3 endPos = eyePos.add(lookVec.scale(5.0));
+
+                for (LivingEntity entity : mc.level.getEntitiesOfClass(LivingEntity.class,
+                        new AABB(eyePos, endPos).inflate(1.0))) {
+                    if (entity == mc.player || entity instanceof ArmorStand) continue;
+
+                    AABB box = entity.getBoundingBox().inflate(0.3);
+                    Optional<Vec3> clip = box.clip(eyePos, endPos);
+
+                    if (clip.isPresent()) {
+                        target = entity;
+                        cachedTarget = entity;
+                        lastSeenTime = System.currentTimeMillis();
+                        break;
+                    }
+                }
+            }
         }
 
         if (target == null) {
@@ -109,9 +139,6 @@ public class healthbargui {
             entityName = target.getName().getString();
         }
 
-        // Debug: print to console
-        System.out.println("Entity name: '" + entityName + "'");
-
         int nameW = mc.font.width(entityName);
         int nameX = x + width / 2 - nameW / 2;
 
@@ -133,6 +160,18 @@ public class healthbargui {
         if (target.hurtTime > 0) {
             gui.fill(x, y, x + width, y + height, 0x33FF0000);
         }
+    }
+
+    private static boolean isTransparentBlock(BlockState state) {
+        String blockId = net.minecraft.core.registries.BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+
+        // Check if it's grass, fern, vine, or any glass
+        return state.is(Blocks.SHORT_GRASS) ||
+                state.is(Blocks.TALL_GRASS) ||
+                state.is(Blocks.FERN) ||
+                state.is(Blocks.LARGE_FERN) ||
+                state.is(Blocks.VINE) ||
+                blockId.contains("glass"); // This catches all glass blocks
     }
 
     private static float lerp(float a, float b, float t) {
